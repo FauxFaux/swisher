@@ -1,0 +1,7 @@
+# Everything...
+*
+
+# Except...
+!src
+!Cargo.toml
+!Cargo.lock
