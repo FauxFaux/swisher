@@ -37,7 +37,7 @@ async fn catch_handler(req: Request<Body>) -> Result<Response<Body>, Infallible>
                 .status(500)
                 .body(Body::empty())
                 .expect("static builder")
-        },
+        }
     })
 }
 
