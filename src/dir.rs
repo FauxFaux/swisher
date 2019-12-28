@@ -16,12 +16,16 @@ use md5::digest::Input;
 use tempfile_fast::PersistableTempFile;
 use tempfile_fast::Sponge;
 
-pub struct DirStore {
-    root: PathBuf,
-    meta_lock: RwLock<()>,
+pub struct DirStore<'p, 'l> {
+    root: &'p Path,
+    meta_lock: &'l RwLock<()>,
 }
 
-impl DirStore {
+impl<'p, 'l> DirStore<'p, 'l> {
+    pub fn new(root: &'p Path, meta_lock: &'l RwLock<()>) -> Self {
+        DirStore { root, meta_lock }
+    }
+
     pub fn head(&self, key: &str) -> Result<Option<FileMeta>, Error> {
         let mut root = PackedKey::from(key).as_path(&self.root);
         assert!(root.set_extension("meta"));
@@ -39,7 +43,11 @@ impl DirStore {
         };
 
         let latest = data.versions.len() - 1;
-        let latest_version = data.versions.into_iter().last().expect("non-empty versions");
+        let latest_version = data
+            .versions
+            .into_iter()
+            .last()
+            .expect("non-empty versions");
 
         if latest_version.tombstone {
             return Ok(None);
@@ -50,7 +58,10 @@ impl DirStore {
 
         let inner = zstd::stream::Decoder::new(fs::File::open(&root)?)?;
 
-        Ok(Some(DirReader { inner, meta: latest_version }))
+        Ok(Some(DirReader {
+            inner,
+            meta: latest_version,
+        }))
     }
 
     pub fn put<R: Read>(
