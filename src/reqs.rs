@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 use std::io;
+use std::io::Write;
 
 use failure::Error;
 use futures::io::AsyncWriteExt as _;
 use http_body::Body as _;
+use hyper::body::Buf;
 use hyper::Body;
 use hyper::Request;
+use log::debug;
 use tokio::fs;
 use tokio::io::AsyncWriteExt as _;
 
 use super::hyp;
-use std::io::Write;
 
 pub struct SimpleResponse {
     pub status: u16,
@@ -76,11 +78,21 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
 
     let mut body = req.into_body();
     while let Some(data) = body.data().await {
-        let data = data?;
-        enc.write_all(&data)?;
-        let vec = enc.get_mut().get_mut();
-        out.write_all(vec).await?;
-        vec.clear();
+        // typically 8 - 128kB chunks
+        let mut data = data?;
+        while !data.is_empty() {
+            let written = enc.write(&data)?;
+            data.advance(written);
+            let cursor = enc.get_mut();
+            let vec = cursor.get_mut();
+
+            // frequently (for compressible data), the write has not caused any new frames
+            if !vec.is_empty() {
+                out.write_all(vec).await?;
+                vec.clear();
+                cursor.set_position(0);
+            }
+        }
     }
 
     out.write_all(enc.finish()?.get_ref()).await?;
