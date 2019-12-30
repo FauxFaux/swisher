@@ -42,43 +42,9 @@ async fn catch_handler(req: Request<Body>) -> Result<Response<Body>, Infallible>
 }
 
 async fn handler(req: Request<Body>) -> Result<Response<Body>, Error> {
-    let response = swisher::reqs::handle(HyperRequest(req))?;
+    let response = swisher::reqs::handle(req)?;
     Ok(Response::builder()
         .status(response.status)
-        .body(match response.body {
-            SimpleBody::Empty => Body::empty(),
-        })
+        .body(response.body)
         .expect("static builder"))
-}
-
-struct HyperRequest(Request<Body>);
-
-impl swisher::reqs::SimpleRequest for HyperRequest {
-    fn method(&self) -> Option<SimpleMethod> {
-        Some(match *self.0.method() {
-            hyper::Method::GET => SimpleMethod::Get,
-            hyper::Method::PUT => SimpleMethod::Put,
-            hyper::Method::POST => SimpleMethod::Post,
-            hyper::Method::DELETE => SimpleMethod::Delete,
-            _ => return None,
-        })
-    }
-
-    fn path(&self) -> &str {
-        self.0.uri().path()
-    }
-
-    fn query(&self) -> &str {
-        self.0.uri().query().unwrap_or("")
-    }
-
-    fn headers(&self) -> Result<HashMap<String, String>, Error> {
-        let orig = self.0.headers();
-        let mut ret = HashMap::with_capacity(orig.keys_len());
-        for (k, v) in orig {
-            // TODO: reject duplicate keys, or handle them somehow
-            ret.insert(k.as_str().to_string(), v.to_str()?.to_string());
-        }
-        Ok(ret)
-    }
 }

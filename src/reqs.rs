@@ -1,21 +1,14 @@
 use std::collections::HashMap;
 
 use failure::Error;
+use hyper::Body;
+use hyper::Request;
 
-pub trait SimpleRequest {
-    fn method(&self) -> Option<SimpleMethod>;
-    fn path(&self) -> &str;
-    fn query(&self) -> &str;
-    fn headers(&self) -> Result<HashMap<String, String>, Error>;
-}
+use super::hyp;
 
 pub struct SimpleResponse {
     pub status: u16,
-    pub body: SimpleBody,
-}
-
-pub enum SimpleBody {
-    Empty,
+    pub body: Body,
 }
 
 pub enum SimpleMethod {
@@ -44,32 +37,32 @@ fn first_path_part(path: &str) -> Option<(String, &str)> {
         .map(|end| (path[1..end + 1].to_string(), &path[end + 1..]))
 }
 
-pub fn handle<Q: SimpleRequest>(req: Q) -> Result<SimpleResponse, Error> {
-    match req.method() {
+pub fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
+    match hyp::method(req.method()) {
         Some(SimpleMethod::Put) => (),
         other => {
             return Ok(SimpleResponse {
                 status: 405,
-                body: SimpleBody::Empty,
+                body: Body::empty(),
             })
         }
     };
 
-    let headers = req.headers()?;
+    let headers = hyp::headers(&req)?;
 
-    let (bucket, path) = match bucket_name(headers.get("Host"), req.path()) {
+    let (bucket, path) = match bucket_name(headers.get("Host"), hyp::path(&req)) {
         Some(b_p) => b_p,
         None => {
             return Ok(SimpleResponse {
                 status: 400,
-                body: SimpleBody::Empty,
+                body: Body::empty(),
             })
         }
     };
 
     Ok(SimpleResponse {
         status: 404,
-        body: SimpleBody::Empty,
+        body: Body::empty(),
     })
 }
 

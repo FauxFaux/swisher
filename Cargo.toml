@@ -9,6 +9,7 @@ base64 = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 data-encoding = "2"
 failure = "0.1"
+hyper = "0.13"
 log = "0.4"
 md-5 = "0.8"
 serde = "1"
@@ -19,7 +20,6 @@ tempfile-fast = "0.3"
 zstd = "0.5"
 
 # bin dependencies
-hyper = { version = "0.13", optional = true }
 path-tree = { version = "0.1", optional = true }
 pretty_env_logger = { version = "0.3", optional = true }
 tokio = { version = "0.2", features = ["full"], optional = true }
