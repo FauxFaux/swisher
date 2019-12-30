@@ -75,6 +75,7 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
         .await?;
 
     let mut enc = zstd::stream::Encoder::new(io::Cursor::new(Vec::with_capacity(8 * 1024)), 3)?;
+    enc.include_checksum(true)?;
 
     let mut body = req.into_body();
     while let Some(data) = body.data().await {
