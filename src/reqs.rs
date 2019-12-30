@@ -1,10 +1,16 @@
 use std::collections::HashMap;
+use std::io;
 
 use failure::Error;
+use futures::io::AsyncWriteExt as _;
+use http_body::Body as _;
 use hyper::Body;
 use hyper::Request;
+use tokio::fs;
+use tokio::io::AsyncWriteExt as _;
 
 use super::hyp;
+use std::io::Write;
 
 pub struct SimpleResponse {
     pub status: u16,
@@ -37,7 +43,7 @@ fn first_path_part(path: &str) -> Option<(String, &str)> {
         .map(|end| (path[1..end + 1].to_string(), &path[end + 1..]))
 }
 
-pub fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
+pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
     match hyp::method(req.method()) {
         Some(SimpleMethod::Put) => (),
         other => {
@@ -60,8 +66,27 @@ pub fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
         }
     };
 
+    let mut out: fs::File = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open("a.zst")
+        .await?;
+
+    let mut enc = zstd::stream::Encoder::new(io::Cursor::new(Vec::with_capacity(8 * 1024)), 3)?;
+
+    let mut body = req.into_body();
+    while let Some(data) = body.data().await {
+        let data = data?;
+        enc.write_all(&data)?;
+        let vec = enc.get_mut().get_mut();
+        out.write_all(vec).await?;
+        vec.clear();
+    }
+
+    out.write_all(enc.finish()?.get_ref()).await?;
+
     Ok(SimpleResponse {
-        status: 404,
+        status: 202,
         body: Body::empty(),
     })
 }

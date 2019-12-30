@@ -9,7 +9,6 @@ use hyper::Body;
 use hyper::Request;
 use hyper::Response;
 use hyper::Server;
-use swisher::reqs::SimpleBody;
 use swisher::reqs::SimpleMethod;
 
 #[tokio::main]
@@ -42,7 +41,7 @@ async fn catch_handler(req: Request<Body>) -> Result<Response<Body>, Infallible>
 }
 
 async fn handler(req: Request<Body>) -> Result<Response<Body>, Error> {
-    let response = swisher::reqs::handle(req)?;
+    let response = swisher::reqs::handle(req).await?;
     Ok(Response::builder()
         .status(response.status)
         .body(response.body)
