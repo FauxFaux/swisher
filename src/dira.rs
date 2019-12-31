@@ -1,9 +1,12 @@
+use std::convert::TryFrom;
 use std::io;
 use std::io::Write;
 
 use failure::Error;
 use hyper::body::Buf;
 use hyper::body::HttpBody;
+use md5::digest::FixedOutput;
+use md5::digest::Input;
 use tokio::fs;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt as _;
@@ -17,9 +20,15 @@ pub async fn write_temp_file<W: Unpin + AsyncWrite>(
     let mut enc = zstd::stream::Encoder::new(io::Cursor::new(Vec::with_capacity(8 * 1024)), 3)?;
     enc.include_checksum(true)?;
 
+    let mut content_length = 0;
+    let mut md5 = md5::Md5::default();
+
     while let Some(data) = body.data().await {
         // typically 8 - 128kB chunks
         let mut data = data?;
+        md5.input(&data);
+        content_length += u64::try_from(data.len())?;
+
         while !data.is_empty() {
             let written = enc.write(&data)?;
             data.advance(written);
@@ -37,8 +46,10 @@ pub async fn write_temp_file<W: Unpin + AsyncWrite>(
 
     out.write_all(enc.finish()?.get_ref()).await?;
 
+    let content_md5_base64 = base64::encode(&md5.fixed_result());
+
     Ok(Intermediate {
-        content_length: 0,
-        content_md5_base64: "".to_string(),
+        content_length,
+        content_md5_base64,
     })
 }
