@@ -74,29 +74,7 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
         .open("a.zst")
         .await?;
 
-    let mut enc = zstd::stream::Encoder::new(io::Cursor::new(Vec::with_capacity(8 * 1024)), 3)?;
-    enc.include_checksum(true)?;
-
-    let mut body = req.into_body();
-    while let Some(data) = body.data().await {
-        // typically 8 - 128kB chunks
-        let mut data = data?;
-        while !data.is_empty() {
-            let written = enc.write(&data)?;
-            data.advance(written);
-            let cursor = enc.get_mut();
-            let vec = cursor.get_mut();
-
-            // frequently (for compressible data), the write has not caused any new frames
-            if !vec.is_empty() {
-                out.write_all(vec).await?;
-                vec.clear();
-                cursor.set_position(0);
-            }
-        }
-    }
-
-    out.write_all(enc.finish()?.get_ref()).await?;
+    super::dira::write_temp_file(req.into_body(), out).await?;
 
     Ok(SimpleResponse {
         status: 202,

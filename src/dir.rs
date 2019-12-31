@@ -70,7 +70,7 @@ impl<'p, 'l> DirStore<'p, 'l> {
         meta: HashMap<String, String>,
         content: R,
     ) -> Result<(), Error> {
-        let temp = to_temp_file(content, &self.root)?;
+        let (intermediate, temp) = to_temp_file(content, &self.root)?;
         let root = PackedKey::from(key);
         let mut root = root.as_path(&self.root);
 
@@ -92,8 +92,8 @@ impl<'p, 'l> DirStore<'p, 'l> {
             let new_version = data.versions.len();
             data.versions.push(FileVersion {
                 modified: Utc::now(),
-                content_length: temp.content_length,
-                content_md5_base64: temp.content_md5_base64,
+                content_length: intermediate.content_length,
+                content_md5_base64: intermediate.content_md5_base64,
                 meta,
                 tombstone: false,
             });
@@ -103,7 +103,7 @@ impl<'p, 'l> DirStore<'p, 'l> {
             // ensure the data exists before we write the metadata
             // an inconvenient crash could make this file non-writable,
             // as we may try and write to a storage location that is already in use
-            temp.temp.persist_noclobber(root).map_err(|e| e.error)?;
+            temp.persist_noclobber(root).map_err(|e| e.error)?;
             sponge.commit()?;
         }
 
@@ -111,13 +111,15 @@ impl<'p, 'l> DirStore<'p, 'l> {
     }
 }
 
-struct Intermediate {
-    content_length: u64,
-    content_md5_base64: String,
-    temp: PersistableTempFile,
+pub struct Intermediate {
+    pub content_length: u64,
+    pub content_md5_base64: String,
 }
 
-fn to_temp_file<R: Read, P: AsRef<Path>>(mut from: R, near: P) -> Result<Intermediate, Error> {
+fn to_temp_file<R: Read, P: AsRef<Path>>(
+    mut from: R,
+    near: P,
+) -> Result<(Intermediate, PersistableTempFile), Error> {
     let mut content_length = 0u64;
     let mut md5 = md5::Md5::default();
     let temp = PersistableTempFile::new_in(near)?;
@@ -138,11 +140,13 @@ fn to_temp_file<R: Read, P: AsRef<Path>>(mut from: R, near: P) -> Result<Interme
     let temp = temp.finish()?;
     let content_md5_base64 = base64::encode(&md5.fixed_result());
 
-    Ok(Intermediate {
-        content_md5_base64,
-        content_length,
+    Ok((
+        Intermediate {
+            content_md5_base64,
+            content_length,
+        },
         temp,
-    })
+    ))
 }
 
 #[derive(Clone)]
