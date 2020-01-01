@@ -36,8 +36,9 @@ fn first_path_part(path: &str) -> Option<(String, &str)> {
 }
 
 pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
-    match hyp::method(req.method()) {
-        Some(SimpleMethod::Put) => (),
+    let writing = match hyp::method(req.method()) {
+        Some(SimpleMethod::Put) => true,
+        Some(SimpleMethod::Get) => false,
         _ => {
             return Ok(SimpleResponse {
                 status: 405,
@@ -58,17 +59,26 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
         }
     };
 
-    let mut temp = super::temp::NamedTempFile::new_in(".").await?;
-    super::dira::write_temp_file(req.into_body(), &mut temp).await?;
-    temp.into_temp_path()
-        .persist("b.txt")
-        .await
-        .map_err(|e| e.error)?;
+    if writing {
+        let mut temp = super::temp::NamedTempFile::new_in(".").await?;
+        super::dira::write_temp_file(req.into_body(), &mut temp).await?;
+        temp.into_temp_path()
+            .persist("b.zst")
+            .await
+            .map_err(|e| e.error)?;
 
-    Ok(SimpleResponse {
-        status: 202,
-        body: Body::empty(),
-    })
+        Ok(SimpleResponse {
+            status: 202,
+            body: Body::empty(),
+        })
+    } else {
+        let (sender, body) = Body::channel();
+        tokio::spawn(super::dira::unpack_into(
+            tokio::fs::File::open("b.zst").await?,
+            sender,
+        ));
+        Ok(SimpleResponse { status: 200, body })
+    }
 }
 
 #[test]
