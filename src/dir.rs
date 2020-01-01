@@ -10,6 +10,7 @@ use std::sync::RwLock;
 
 use chrono::DateTime;
 use chrono::Utc;
+use failure::err_msg;
 use failure::Error;
 use md5::digest::FixedOutput;
 use md5::digest::Input;
@@ -21,47 +22,29 @@ pub struct DirStore<'p, 'l> {
     meta_lock: &'l RwLock<()>,
 }
 
+pub async fn load_meta(root: &Path, key: &PackedKey) -> Result<Option<FileMeta>, Error> {
+    let mut root = key.as_path(root);
+    assert!(root.set_extension("meta"));
+    match tokio::fs::read(&root).await {
+        Ok(data) => Ok(Some(serde_json::from_slice(&data)?)),
+        Err(ref e) if io::ErrorKind::NotFound == e.kind() => Ok(None),
+        Err(e) => Err(e)?,
+    }
+}
+
+pub async fn open_version(
+    root: &Path,
+    key: &PackedKey,
+    version: u64,
+) -> Result<tokio::fs::File, Error> {
+    let mut root = key.as_path(root);
+    assert!(root.set_extension(format!("{}", version)));
+    Ok(tokio::fs::File::open(root).await?)
+}
+
 impl<'p, 'l> DirStore<'p, 'l> {
     pub fn new(root: &'p Path, meta_lock: &'l RwLock<()>) -> Self {
         DirStore { root, meta_lock }
-    }
-
-    pub fn head(&self, key: &str) -> Result<Option<FileMeta>, Error> {
-        let mut root = PackedKey::from(key).as_path(&self.root);
-        assert!(root.set_extension("meta"));
-        match fs::read(&root) {
-            Ok(data) => Ok(Some(serde_json::from_slice(&data)?)),
-            Err(ref e) if io::ErrorKind::NotFound == e.kind() => Ok(None),
-            Err(e) => Err(e)?,
-        }
-    }
-
-    pub fn get(&self, key: &str) -> Result<Option<DirReader>, Error> {
-        let data = match self.head(key)? {
-            Some(data) => data,
-            None => return Ok(None),
-        };
-
-        let latest = data.versions.len() - 1;
-        let latest_version = data
-            .versions
-            .into_iter()
-            .last()
-            .expect("non-empty versions");
-
-        if latest_version.tombstone {
-            return Ok(None);
-        }
-
-        let mut root = PackedKey::from(key).as_path(&self.root);
-        assert!(root.set_extension(format!("{}", latest)));
-
-        let inner = zstd::stream::Decoder::new(fs::File::open(&root)?)?;
-
-        Ok(Some(DirReader {
-            inner,
-            meta: latest_version,
-        }))
     }
 
     pub fn put<R: Read>(
@@ -150,7 +133,7 @@ fn to_temp_file<R: Read, P: AsRef<Path>>(
 }
 
 #[derive(Clone)]
-struct PackedKey(String);
+pub struct PackedKey(String);
 
 impl From<&str> for PackedKey {
     fn from(name: &str) -> Self {
@@ -181,6 +164,24 @@ pub struct FileMeta {
     versions: Vec<FileVersion>,
 }
 
+impl FileMeta {
+    pub fn deleted(&self) -> Result<bool, Error> {
+        Ok(self.latest_version()?.tombstone)
+    }
+
+    pub fn latest_version_id(&self) -> Result<usize, Error> {
+        Ok(self
+            .versions
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| err_msg("versions array cannot be empty"))?)
+    }
+
+    pub fn latest_version(&self) -> Result<&FileVersion, Error> {
+        Ok(&self.versions[self.latest_version_id()?])
+    }
+}
+
 #[derive(serde_derive::Serialize, serde_derive::Deserialize)]
 pub struct FileVersion {
     modified: DateTime<Utc>,
@@ -188,15 +189,4 @@ pub struct FileVersion {
     content_md5_base64: String,
     meta: HashMap<String, String>,
     tombstone: bool,
-}
-
-pub struct DirReader {
-    inner: zstd::stream::Decoder<io::BufReader<fs::File>>,
-    pub meta: FileVersion,
-}
-
-impl Read for DirReader {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.read(buf)
-    }
 }
