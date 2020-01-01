@@ -68,13 +68,12 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
         }
     };
 
-    let mut out: fs::File = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open("a.zst")
-        .await?;
-
-    super::dira::write_temp_file(req.into_body(), out).await?;
+    let mut temp = super::temp::NamedTempFile::new_in(".").await?;
+    super::dira::write_temp_file(req.into_body(), &mut temp).await?;
+    temp.into_temp_path()
+        .persist("b.txt")
+        .await
+        .map_err(|e| e.error)?;
 
     Ok(SimpleResponse {
         status: 202,

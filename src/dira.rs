@@ -12,6 +12,7 @@ use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt as _;
 
 use super::dir::Intermediate;
+use std::path::Path;
 
 pub async fn write_temp_file<W: Unpin + AsyncWrite>(
     mut body: hyper::Body,
