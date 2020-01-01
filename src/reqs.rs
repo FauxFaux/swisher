@@ -61,7 +61,7 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
 
     if writing {
         let mut temp = super::temp::NamedTempFile::new_in(".").await?;
-        super::dira::write_temp_file(req.into_body(), &mut temp).await?;
+        super::hyper_files::stream_pack(req.into_body(), &mut temp).await?;
         temp.into_temp_path()
             .persist("b.zst")
             .await
@@ -73,7 +73,7 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
         })
     } else {
         let (sender, body) = Body::channel();
-        tokio::spawn(super::dira::unpack_into(
+        tokio::spawn(super::hyper_files::stream_unpack(
             tokio::fs::File::open("b.zst").await?,
             sender,
         ));

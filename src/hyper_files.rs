@@ -16,7 +16,7 @@ use zstd::stream::raw::Operation;
 
 use super::dir::Intermediate;
 
-pub async fn write_temp_file<W: Unpin + AsyncWrite>(
+pub async fn stream_pack<W: Unpin + AsyncWrite>(
     mut body: hyper::Body,
     mut out: W,
 ) -> Result<Intermediate, Error> {
@@ -57,7 +57,7 @@ pub async fn write_temp_file<W: Unpin + AsyncWrite>(
     })
 }
 
-pub async fn unpack_into<R: Unpin + AsyncRead>(
+pub async fn stream_unpack<R: Unpin + AsyncRead>(
     mut from: R,
     mut sender: Sender,
 ) -> Result<(), Error> {

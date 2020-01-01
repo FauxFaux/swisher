@@ -1,5 +1,5 @@
 pub mod dir;
-pub mod dira;
 mod hyp;
+pub mod hyper_files;
 pub mod reqs;
 mod temp;
