@@ -1,16 +1,6 @@
-use std::collections::HashMap;
-use std::io;
-use std::io::Write;
-
 use failure::Error;
-use futures::io::AsyncWriteExt as _;
-use http_body::Body as _;
-use hyper::body::Buf;
 use hyper::Body;
 use hyper::Request;
-use log::debug;
-use tokio::fs;
-use tokio::io::AsyncWriteExt as _;
 
 use super::hyp;
 
@@ -48,7 +38,7 @@ fn first_path_part(path: &str) -> Option<(String, &str)> {
 pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
     match hyp::method(req.method()) {
         Some(SimpleMethod::Put) => (),
-        other => {
+        _ => {
             return Ok(SimpleResponse {
                 status: 405,
                 body: Body::empty(),

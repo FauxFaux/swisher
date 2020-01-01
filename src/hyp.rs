@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use failure::Error;
 use hyper::Body;
-use hyper::Request;
 
 use super::reqs::SimpleMethod;
 

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::io;
 use std::mem;
 use std::path::Path;
@@ -12,7 +14,6 @@ use failure::Error;
 use failure::ResultExt;
 use log::warn;
 use pin_project::pin_project;
-use rand::Rng;
 use tokio::fs;
 use tokio::prelude::AsyncWrite;
 
