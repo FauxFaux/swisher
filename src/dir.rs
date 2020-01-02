@@ -16,6 +16,9 @@ use md5::digest::FixedOutput;
 use md5::digest::Input;
 use tempfile_fast::PersistableTempFile;
 use tempfile_fast::Sponge;
+use tokio::io::AsyncWriteExt as _;
+
+use crate::temp::TempPath;
 
 pub struct DirStore<'p, 'l> {
     root: &'p Path,
@@ -42,55 +45,73 @@ pub async fn open_version(
     Ok(tokio::fs::File::open(root).await?)
 }
 
+pub async fn write_new_version(
+    key: impl ToString,
+    mut root: PathBuf,
+    meta: HashMap<String, String>,
+    intermediate: Intermediate,
+    temp: TempPath,
+) -> Result<(), Error> {
+    let mut data = match tokio::fs::read(&root).await {
+        Ok(data) => serde_json::from_slice(&data)?,
+        Err(ref e) if io::ErrorKind::NotFound == e.kind() => FileMeta {
+            key: key.to_string(),
+            versions: Vec::with_capacity(1),
+        },
+        Err(e) => Err(e)?,
+    };
+
+    let new_version = data.versions.len();
+
+    data.versions.push(FileVersion {
+        modified: Utc::now(),
+        content_length: intermediate.content_length,
+        content_md5_base64: intermediate.content_md5_base64,
+        meta,
+        tombstone: false,
+    });
+
+    let data = serde_json::to_vec(&data)?;
+
+    let mut meta_temp =
+        super::temp::NamedTempFile::new_in(root.parent().expect("structured dir")).await?;
+    meta_temp.write_all(&data).await?;
+    let meta_temp = meta_temp.into_temp_path();
+
+    // ensure the data exists before we write the metadata
+    // this will clobber existing versions if they wrote before a crash before?
+    assert!(root.set_extension(format!("{}", new_version)));
+    temp.persist(&root).await.map_err(|e| e.error)?;
+
+    assert!(root.set_extension("meta"));
+    meta_temp.persist(root).await.map_err(|e| e.error)?;
+
+    Ok(())
+}
+
+pub async fn put(
+    root: &Path,
+    meta_lock: &RwLock<()>,
+    key: &str,
+    meta: HashMap<String, String>,
+    temp: TempPath,
+    intermediate: Intermediate,
+) -> Result<(), Error> {
+    let mut root = PackedKey::from(key).as_path(root);
+
+    tokio::fs::create_dir_all(root.parent().expect("structured path")).await?;
+
+    {
+        let _writing = meta_lock.write().expect("poisoned!");
+        write_new_version(key, root, meta, intermediate, temp).await?;
+    }
+
+    Ok(())
+}
+
 impl<'p, 'l> DirStore<'p, 'l> {
     pub fn new(root: &'p Path, meta_lock: &'l RwLock<()>) -> Self {
         DirStore { root, meta_lock }
-    }
-
-    pub fn put<R: Read>(
-        &self,
-        key: &str,
-        meta: HashMap<String, String>,
-        content: R,
-    ) -> Result<(), Error> {
-        let (intermediate, temp) = to_temp_file(content, &self.root)?;
-        let root = PackedKey::from(key);
-        let mut root = root.as_path(&self.root);
-
-        fs::create_dir_all(root.parent().expect("structured path"))?;
-
-        assert!(root.set_extension("meta"));
-        let mut sponge = Sponge::new_for(&root)?;
-
-        {
-            let _writing = self.meta_lock.write().expect("poisoned!");
-            let mut data = match fs::read(&root) {
-                Ok(data) => serde_json::from_slice(&data)?,
-                Err(ref e) if io::ErrorKind::NotFound == e.kind() => FileMeta {
-                    key: key.to_string(),
-                    versions: Vec::with_capacity(1),
-                },
-                Err(e) => Err(e)?,
-            };
-            let new_version = data.versions.len();
-            data.versions.push(FileVersion {
-                modified: Utc::now(),
-                content_length: intermediate.content_length,
-                content_md5_base64: intermediate.content_md5_base64,
-                meta,
-                tombstone: false,
-            });
-            serde_json::to_writer(&mut sponge, &data)?;
-            assert!(root.set_extension(format!("{}", new_version)));
-
-            // ensure the data exists before we write the metadata
-            // an inconvenient crash could make this file non-writable,
-            // as we may try and write to a storage location that is already in use
-            temp.persist_noclobber(root).map_err(|e| e.error)?;
-            sponge.commit()?;
-        }
-
-        Ok(())
     }
 }
 
