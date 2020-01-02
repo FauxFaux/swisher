@@ -36,7 +36,6 @@ pub async fn write_new_version(
     mut root: PathBuf,
     meta: HashMap<String, String>,
     intermediate: Intermediate,
-    temp: TempPath,
 ) -> Result<(), Error> {
     let mut data = match fs::read(&root).await {
         Ok(data) => serde_json::from_slice(&data)?,
@@ -51,8 +50,8 @@ pub async fn write_new_version(
 
     data.versions.push(FileVersion {
         modified: Utc::now(),
-        content_length: intermediate.content_length,
-        content_md5_base64: intermediate.content_md5_base64,
+        content_length: intermediate.content.length,
+        content_md5_base64: intermediate.content.md5_base64,
         meta,
         tombstone: false,
     });
@@ -67,7 +66,11 @@ pub async fn write_new_version(
     // ensure the data exists before we write the metadata
     // this will clobber existing versions if they wrote before a crash before?
     assert!(root.set_extension(format!("{}", new_version)));
-    temp.persist(&root).await.map_err(|e| e.error)?;
+    intermediate
+        .temp
+        .persist(&root)
+        .await
+        .map_err(|e| e.error)?;
 
     assert!(root.set_extension("meta"));
     meta_temp.persist(root).await.map_err(|e| e.error)?;
@@ -80,7 +83,6 @@ pub async fn put(
     meta_lock: &RwLock<()>,
     key: &str,
     meta: HashMap<String, String>,
-    temp: TempPath,
     intermediate: Intermediate,
 ) -> Result<(), Error> {
     let root = PackedKey::from(key).as_path(root);
@@ -89,15 +91,20 @@ pub async fn put(
 
     {
         let _writing = meta_lock.write().expect("poisoned!");
-        write_new_version(key, root, meta, intermediate, temp).await?;
+        write_new_version(key, root, meta, intermediate).await?;
     }
 
     Ok(())
 }
 
+pub struct ContentInfo {
+    pub length: u64,
+    pub md5_base64: String,
+}
+
 pub struct Intermediate {
-    pub content_length: u64,
-    pub content_md5_base64: String,
+    pub temp: TempPath,
+    pub content: ContentInfo,
 }
 
 #[derive(Clone)]

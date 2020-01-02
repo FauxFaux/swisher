@@ -14,23 +14,23 @@ use tokio::io::AsyncWriteExt as _;
 use tokio::prelude::AsyncRead;
 use zstd::stream::raw::Operation;
 
-use super::dir::Intermediate;
+use super::dir::ContentInfo;
 
 pub async fn stream_pack<W: Unpin + AsyncWrite>(
     mut body: hyper::Body,
     mut out: W,
-) -> Result<Intermediate, Error> {
+) -> Result<ContentInfo, Error> {
     let mut enc = zstd::stream::Encoder::new(io::Cursor::new(Vec::with_capacity(8 * 1024)), 3)?;
     enc.include_checksum(true)?;
 
-    let mut content_length = 0;
+    let mut length = 0;
     let mut md5 = md5::Md5::default();
 
     while let Some(data) = body.data().await {
         // typically 8 - 128kB chunks
         let mut data = data?;
         md5.input(&data);
-        content_length += u64::try_from(data.len())?;
+        length += u64::try_from(data.len())?;
 
         while !data.is_empty() {
             let written = enc.write(&data)?;
@@ -49,12 +49,9 @@ pub async fn stream_pack<W: Unpin + AsyncWrite>(
 
     out.write_all(enc.finish()?.get_ref()).await?;
 
-    let content_md5_base64 = base64::encode(&md5.fixed_result());
+    let md5_base64 = base64::encode(&md5.fixed_result());
 
-    Ok(Intermediate {
-        content_length,
-        content_md5_base64,
-    })
+    Ok(ContentInfo { length, md5_base64 })
 }
 
 pub async fn stream_unpack<R: Unpin + AsyncRead>(
