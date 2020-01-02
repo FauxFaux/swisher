@@ -1,8 +1,13 @@
+use std::path::Path;
+
+use failure::bail;
 use failure::Error;
 use hyper::Body;
 use hyper::Request;
 
+use super::dir;
 use super::hyp;
+use super::dir::Intermediate;
 
 pub struct SimpleResponse {
     pub status: u16,
@@ -16,10 +21,10 @@ pub enum SimpleMethod {
     Delete,
 }
 
-pub fn bucket_name<'p>(host_header: Option<&String>, path: &'p str) -> Option<(String, &'p str)> {
+pub fn bucket_name(host_header: Option<&String>, path: &str) -> Option<(String, String)> {
     host_header
         .and_then(|host| first_dns_part(host))
-        .map(|bucket| (bucket.to_string(), path))
+        .map(|bucket| (bucket.to_string(), path.to_string()))
         .or_else(|| first_path_part(path))
 }
 
@@ -29,16 +34,15 @@ fn first_dns_part(host: &str) -> Option<&str> {
     parts.next().and(bucket)
 }
 
-fn first_path_part(path: &str) -> Option<(String, &str)> {
+fn first_path_part(path: &str) -> Option<(String, String)> {
     path[1..]
         .find('/')
-        .map(|end| (path[1..end + 1].to_string(), &path[end + 1..]))
+        .map(|end| (path[1..end + 1].to_string(), path[end + 1..].to_string()))
 }
 
 pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
-    let writing = match hyp::method(req.method()) {
-        Some(SimpleMethod::Put) => true,
-        Some(SimpleMethod::Get) => false,
+    let method = match hyp::method(req.method()) {
+        Some(method) => method,
         _ => {
             return Ok(SimpleResponse {
                 status: 405,
@@ -59,25 +63,41 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
         }
     };
 
-    if writing {
-        let mut temp = super::temp::NamedTempFile::new_in(".").await?;
-        super::hyper_files::stream_pack(req.into_body(), &mut temp).await?;
-        temp.into_temp_path()
-            .persist("b.zst")
-            .await
-            .map_err(|e| e.error)?;
+    match method {
+        SimpleMethod::Get => {
+            let (_meta, file) = match dir::get(Path::new("."), &path).await? {
+                Some(parts) => parts,
+                None => {
+                    return Ok(SimpleResponse {
+                        status: 404,
+                        body: Body::empty(),
+                    })
+                }
+            };
+            let (sender, body) = Body::channel();
+            tokio::spawn(super::hyper_files::stream_unpack(file, sender));
+            Ok(SimpleResponse { status: 200, body })
+        }
+        SimpleMethod::Put => {
+            let mut temp = super::temp::NamedTempFile::new_in(".").await?;
+            let content = super::hyper_files::stream_pack(req.into_body(), &mut temp).await?;
+            let temp = temp.into_temp_path();
 
-        Ok(SimpleResponse {
-            status: 202,
-            body: Body::empty(),
-        })
-    } else {
-        let (sender, body) = Body::channel();
-        tokio::spawn(super::hyper_files::stream_unpack(
-            tokio::fs::File::open("b.zst").await?,
-            sender,
-        ));
-        Ok(SimpleResponse { status: 200, body })
+            dir::store(
+                Path::new("."),
+                &tokio::sync::Mutex::new(()),
+                &path,
+                headers,
+                Intermediate { temp, content },
+            )
+            .await?;
+
+            Ok(SimpleResponse {
+                status: 202,
+                body: Body::empty(),
+            })
+        }
+        other => bail!("not implemented"),
     }
 }
 
@@ -85,23 +105,26 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
 fn name() {
     assert_eq!(None, bucket_name(None, "/"));
     assert_eq!(None, bucket_name(None, "/potato"));
-    assert_eq!(Some(("potato".into(), "/")), bucket_name(None, "/potato/"));
     assert_eq!(
-        Some(("potato".into(), "/an/d")),
+        Some(("potato".into(), "/".into())),
+        bucket_name(None, "/potato/")
+    );
+    assert_eq!(
+        Some(("potato".into(), "/an/d".into())),
         bucket_name(None, "/potato/an/d")
     );
 
     assert_eq!(None, bucket_name(Some(&"foo".into()), "/"));
     assert_eq!(
-        Some(("plants".into(), "/greens")),
+        Some(("plants".into(), "/greens".into())),
         bucket_name(Some(&"foo".into()), "/plants/greens")
     );
     assert_eq!(
-        Some(("potato".into(), "/")),
+        Some(("potato".into(), "/".into())),
         bucket_name(Some(&"potato.foo".into()), "/")
     );
     assert_eq!(
-        Some(("potato".into(), "/cheese/and/beans")),
+        Some(("potato".into(), "/cheese/and/beans".into())),
         bucket_name(Some(&"potato.foo".into()), "/cheese/and/beans")
     );
 }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::RwLock;
 
 use chrono::DateTime;
 use chrono::Utc;
@@ -12,10 +12,21 @@ use md5::digest::FixedOutput;
 use md5::digest::Input;
 use tokio::fs;
 use tokio::io::AsyncWriteExt as _;
+use tokio::sync::Mutex;
 
 use crate::temp::TempPath;
 
-pub async fn load_meta(root: &Path, key: &PackedKey) -> Result<Option<FileMeta>, Error> {
+pub async fn get(root: &Path, key: &str) -> Result<Option<(FileMeta, fs::File)>, Error> {
+    let key = PackedKey::from(key);
+    let meta = match load_meta(root, &key).await? {
+        Some(meta) => meta,
+        None => return Ok(None),
+    };
+    let file = open_version(root, &key, u64::try_from(meta.latest_version_id()?)?).await?;
+    Ok(Some((meta, file)))
+}
+
+async fn load_meta(root: &Path, key: &PackedKey) -> Result<Option<FileMeta>, Error> {
     let mut root = key.as_path(root);
     assert!(root.set_extension("meta"));
     match fs::read(&root).await {
@@ -25,13 +36,13 @@ pub async fn load_meta(root: &Path, key: &PackedKey) -> Result<Option<FileMeta>,
     }
 }
 
-pub async fn open_version(root: &Path, key: &PackedKey, version: u64) -> Result<fs::File, Error> {
+async fn open_version(root: &Path, key: &PackedKey, version: u64) -> Result<fs::File, Error> {
     let mut root = key.as_path(root);
     assert!(root.set_extension(format!("{}", version)));
     Ok(fs::File::open(root).await?)
 }
 
-pub async fn write_new_version(
+async fn write_new_version(
     key: impl ToString,
     mut root: PathBuf,
     meta: HashMap<String, String>,
@@ -73,14 +84,16 @@ pub async fn write_new_version(
         .map_err(|e| e.error)?;
 
     assert!(root.set_extension("meta"));
-    meta_temp.persist(root).await.map_err(|e| e.error)?;
+    meta_temp.persist(&root).await.map_err(|e| e.error)?;
+
+    log::debug!("wrote {:?}", root);
 
     Ok(())
 }
 
-pub async fn put(
+pub async fn store(
     root: &Path,
-    meta_lock: &RwLock<()>,
+    meta_lock: &Mutex<()>,
     key: &str,
     meta: HashMap<String, String>,
     intermediate: Intermediate,
@@ -90,7 +103,7 @@ pub async fn put(
     fs::create_dir_all(root.parent().expect("structured path")).await?;
 
     {
-        let _writing = meta_lock.write().expect("poisoned!");
+        let _writing = meta_lock.lock().await;
         write_new_version(key, root, meta, intermediate).await?;
     }
 
