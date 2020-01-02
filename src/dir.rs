@@ -1,9 +1,5 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::fs;
 use std::io;
-use std::io::Read;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::RwLock;
@@ -14,35 +10,25 @@ use failure::err_msg;
 use failure::Error;
 use md5::digest::FixedOutput;
 use md5::digest::Input;
-use tempfile_fast::PersistableTempFile;
-use tempfile_fast::Sponge;
+use tokio::fs;
 use tokio::io::AsyncWriteExt as _;
 
 use crate::temp::TempPath;
 
-pub struct DirStore<'p, 'l> {
-    root: &'p Path,
-    meta_lock: &'l RwLock<()>,
-}
-
 pub async fn load_meta(root: &Path, key: &PackedKey) -> Result<Option<FileMeta>, Error> {
     let mut root = key.as_path(root);
     assert!(root.set_extension("meta"));
-    match tokio::fs::read(&root).await {
+    match fs::read(&root).await {
         Ok(data) => Ok(Some(serde_json::from_slice(&data)?)),
         Err(ref e) if io::ErrorKind::NotFound == e.kind() => Ok(None),
         Err(e) => Err(e)?,
     }
 }
 
-pub async fn open_version(
-    root: &Path,
-    key: &PackedKey,
-    version: u64,
-) -> Result<tokio::fs::File, Error> {
+pub async fn open_version(root: &Path, key: &PackedKey, version: u64) -> Result<fs::File, Error> {
     let mut root = key.as_path(root);
     assert!(root.set_extension(format!("{}", version)));
-    Ok(tokio::fs::File::open(root).await?)
+    Ok(fs::File::open(root).await?)
 }
 
 pub async fn write_new_version(
@@ -52,7 +38,7 @@ pub async fn write_new_version(
     intermediate: Intermediate,
     temp: TempPath,
 ) -> Result<(), Error> {
-    let mut data = match tokio::fs::read(&root).await {
+    let mut data = match fs::read(&root).await {
         Ok(data) => serde_json::from_slice(&data)?,
         Err(ref e) if io::ErrorKind::NotFound == e.kind() => FileMeta {
             key: key.to_string(),
@@ -97,9 +83,9 @@ pub async fn put(
     temp: TempPath,
     intermediate: Intermediate,
 ) -> Result<(), Error> {
-    let mut root = PackedKey::from(key).as_path(root);
+    let root = PackedKey::from(key).as_path(root);
 
-    tokio::fs::create_dir_all(root.parent().expect("structured path")).await?;
+    fs::create_dir_all(root.parent().expect("structured path")).await?;
 
     {
         let _writing = meta_lock.write().expect("poisoned!");
@@ -109,48 +95,9 @@ pub async fn put(
     Ok(())
 }
 
-impl<'p, 'l> DirStore<'p, 'l> {
-    pub fn new(root: &'p Path, meta_lock: &'l RwLock<()>) -> Self {
-        DirStore { root, meta_lock }
-    }
-}
-
 pub struct Intermediate {
     pub content_length: u64,
     pub content_md5_base64: String,
-}
-
-fn to_temp_file<R: Read, P: AsRef<Path>>(
-    mut from: R,
-    near: P,
-) -> Result<(Intermediate, PersistableTempFile), Error> {
-    let mut content_length = 0u64;
-    let mut md5 = md5::Md5::default();
-    let temp = PersistableTempFile::new_in(near)?;
-    let mut temp = zstd::stream::Encoder::new(temp, 5)?;
-    temp.include_checksum(true)?;
-
-    loop {
-        let mut buf = [0u8; 8 * 1024];
-        let found = from.read(&mut buf)?;
-        let buf = &buf[..found];
-        if buf.is_empty() {
-            break;
-        }
-        md5.input(buf);
-        temp.write_all(buf)?;
-        content_length += u64::try_from(buf.len()).expect("read result fits in u64");
-    }
-    let temp = temp.finish()?;
-    let content_md5_base64 = base64::encode(&md5.fixed_result());
-
-    Ok((
-        Intermediate {
-            content_md5_base64,
-            content_length,
-        },
-        temp,
-    ))
 }
 
 #[derive(Clone)]
