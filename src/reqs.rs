@@ -5,15 +5,17 @@ use failure::Error;
 use hyper::Body;
 use hyper::Request;
 
+use super::bucket;
 use super::dir;
-use super::hyp;
 use super::dir::Intermediate;
+use super::hyp;
 
 pub struct SimpleResponse {
     pub status: u16,
     pub body: Body,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum SimpleMethod {
     Get,
     Put,
@@ -41,6 +43,16 @@ fn first_path_part(path: &str) -> Option<(String, String)> {
 }
 
 pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
+    let not_found = SimpleResponse {
+        status: 404,
+        body: Body::empty(),
+    };
+
+    let not_reasonable = SimpleResponse {
+        status: 400,
+        body: Body::empty(),
+    };
+
     let method = match hyp::method(req.method()) {
         Some(method) => method,
         _ => {
@@ -55,24 +67,21 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
 
     let (bucket, path) = match bucket_name(headers.get("Host"), hyp::path(&req)) {
         Some(b_p) => b_p,
-        None => {
-            return Ok(SimpleResponse {
-                status: 400,
-                body: Body::empty(),
-            })
-        }
+        None => return Ok(not_reasonable),
     };
+
+    let bucket = match bucket::Name::from(bucket) {
+        Some(bucket) => bucket,
+        None => return Ok(not_reasonable),
+    };
+
+    let config = bucket::get_config(Path::new("."), &bucket).await?;
 
     match method {
         SimpleMethod::Get => {
             let (_meta, file) = match dir::get(Path::new("."), &path).await? {
                 Some(parts) => parts,
-                None => {
-                    return Ok(SimpleResponse {
-                        status: 404,
-                        body: Body::empty(),
-                    })
-                }
+                None => return Ok(not_found),
             };
             let (sender, body) = Body::channel();
             tokio::spawn(super::hyper_files::stream_unpack(file, sender));
@@ -97,7 +106,7 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
                 body: Body::empty(),
             })
         }
-        other => bail!("not implemented"),
+        other => bail!("not implemented: {:?}", other),
     }
 }
 
