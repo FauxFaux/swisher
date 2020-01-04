@@ -27,10 +27,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let on_signal = on_signal.take();
         match on_signal {
             Some(mut on_signal) => {
-                log::warn!(
-                    "signal, attempting shutdown, status: {:?}",
-                    on_signal.try_send(()).is_err()
-                );
+                let success = attempt_shutdown(on_signal);
+                log::warn!("signal, attempting shutdown, status: {:?}", success);
             }
             None => log::error!("ignoring termination signal"),
         }
@@ -62,16 +60,18 @@ async fn catch_handler(
         Ok(response) => response,
         Err(e) => {
             log::error!("internal error: {:?}", e);
-            log::warn!(
-                "error, attempting shutdown, status: {:?}",
-                shutdown.try_send(()).is_err()
-            );
+            let success = attempt_shutdown(shutdown);
+            log::warn!("error, attempting shutdown, status: {:?}", success);
             Response::builder()
                 .status(500)
                 .body(Body::empty())
                 .expect("static builder")
         }
     })
+}
+
+fn attempt_shutdown(shutdown: mpsc::Sender<()>) -> bool {
+    shutdown.try_send(()).is_ok()
 }
 
 async fn handler(req: Request<Body>) -> Result<Response<Body>, Error> {
