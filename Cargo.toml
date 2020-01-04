@@ -10,12 +10,16 @@ chrono = { version = "0.4", features = ["serde"] }
 data-encoding = "2"
 failure = "0.1"
 futures = "0.3"
+hex = "0.4"
 http-body = "0.3"
 hyper = "0.13"
+lazy_static = "1"
 log = "0.4"
+maplit = "1"
 md-5 = "0.8"
 pin-project = "0.4"
 rand = "0.7"
+regex = "1"
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
@@ -28,6 +32,14 @@ zstd = "0.5"
 ctrlc = { version = "3", features = ["termination"], optional = true }
 path-tree = { version = "0.1", optional = true }
 pretty_env_logger = { version = "0.3", optional = true }
+
+[dependencies.warheadhateus]
+# HEAD + https://github.com/rustyhorde/warheadhateus/pull/2 (massive upgrades)
+git = "https://github.com/FauxFaux/warheadhateus"
+rev = "440d5e366bad722934c1c2a265d7853326a12cd3"
+
+[dev-dependencies]
+pretty_env_logger = "0.3"
 
 [features]
 default = []

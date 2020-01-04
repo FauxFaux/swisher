@@ -9,6 +9,8 @@ use super::bucket;
 use super::dir;
 use super::dir::Intermediate;
 use super::hyp;
+use super::sig;
+use crate::sig::Validation;
 
 pub struct SimpleResponse {
     pub status: u16,
@@ -64,6 +66,18 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
     };
 
     let headers = hyp::headers(&req)?;
+    let (user, headers) = match sig::validate(headers) {
+        Validation::Invalid | Validation::Unsupported => {
+            return Ok(SimpleResponse {
+                status: 403,
+                body: Body::empty(),
+            })
+        }
+        Validation::Anonymous(headers) => (None, headers),
+        Validation::Valid(user, headers) => (Some(user), headers),
+    };
+
+    log::info!("{:?}, {:?}, {:?}", method, hyp::path(&req), headers);
 
     let (bucket, path) = match bucket_name(headers.get("Host"), hyp::path(&req)) {
         Some(b_p) => b_p,
