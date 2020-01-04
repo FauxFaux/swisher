@@ -29,6 +29,10 @@ zstd = "0.5"
 path-tree = { version = "0.1", optional = true }
 pretty_env_logger = { version = "0.3", optional = true }
 
+[features]
+default = []
+bin = ["path-tree", "pretty_env_logger"]
+
 [[bin]]
 name = "swisher"
-required-features = ["path-tree", "pretty_env_logger"]
+required-features = ["bin"]
