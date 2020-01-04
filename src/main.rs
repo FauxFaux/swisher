@@ -70,7 +70,7 @@ async fn catch_handler(
     })
 }
 
-fn attempt_shutdown(shutdown: mpsc::Sender<()>) -> bool {
+fn attempt_shutdown(mut shutdown: mpsc::Sender<()>) -> bool {
     shutdown.try_send(()).is_ok()
 }
 
