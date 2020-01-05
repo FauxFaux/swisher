@@ -8,6 +8,6 @@ ADD . .
 RUN cargo build --release --bin swisher --features=bin && \
     mv target/*-musl/release/swisher /swisher
 
-FROM busybox:1-musl
+FROM busybox:1
 COPY --from=0 /swisher .
 CMD ["./swisher"]
