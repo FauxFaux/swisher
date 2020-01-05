@@ -5,3 +5,4 @@ pub mod hyper_files;
 pub mod reqs;
 mod sig;
 mod temp;
+mod users;
