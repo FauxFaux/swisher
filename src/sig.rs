@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use chrono::DateTime;
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
-use chrono::TimeZone;
 use chrono::Utc;
 use lazy_static::lazy_static;
 use log::debug;
@@ -144,6 +143,7 @@ struct AuthHeaderFields {
 
 #[test]
 fn canned_request() {
+    use chrono::offset::TimeZone as _;
     pretty_env_logger::init();
 
     assert_eq!(

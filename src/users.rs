@@ -1,4 +1,3 @@
-use rand::AsByteSliceMut;
 use std::convert::TryInto;
 
 #[derive(Copy, Clone)]

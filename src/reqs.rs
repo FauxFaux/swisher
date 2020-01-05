@@ -66,7 +66,7 @@ pub async fn handle(req: Request<Body>, state: CopyState) -> Result<SimpleRespon
     let headers = hyp::headers(&req)?;
     let (user, headers) = match sig::validate(
         &format!("{}", req.uri()),
-        |_| "456".to_string(),
+        |access| state.master.secret_key_for(access),
         Utc::now(),
         headers,
         HttpRequestMethod::PUT,
