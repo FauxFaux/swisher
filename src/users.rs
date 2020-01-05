@@ -6,8 +6,10 @@ pub struct MasterKey {
     key: [u8; 32],
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub struct RoleId([u8; 12]);
+
 const ACCESS_KEY_LEN: usize = 30;
-pub type RoleId = [u8; 12];
 
 impl MasterKey {
     pub fn new(from: &str) -> MasterKey {
@@ -26,7 +28,7 @@ impl MasterKey {
     pub fn access_key_for(&self, role_id: RoleId) -> String {
         let mut ret = Vec::with_capacity(3 + 12 + 6);
         ret.extend_from_slice(&self.id);
-        ret.extend_from_slice(&role_id);
+        ret.extend_from_slice(&role_id.0);
         ret.extend_from_slice(&rand::random::<u64>().to_le_bytes()[..6]);
         assert_eq!(3 + 12 + 6, ret.len());
         format!("S1{}", pack(&ret))
@@ -47,7 +49,7 @@ impl MasterKey {
             return Err("not issued by us");
         }
 
-        Ok(key[3..3 + 12].try_into().expect("fixed slice"))
+        Ok(RoleId(key[3..3 + 12].try_into().expect("fixed slice")))
     }
 
     pub fn secret_key_for(&self, access_key: &str) -> String {
@@ -89,13 +91,13 @@ fn key_derivation() {
         master.secret_key_for("abc")
     );
 
-    let role_id = [1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6];
+    let role_id = RoleId([1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6]);
     let access = master.access_key_for(role_id);
     assert_eq!(ACCESS_KEY_LEN, access.len());
     assert_eq!("S1u1SLAQIDBAUGAQIDBAUG", &access[..2 + 4 + 16]);
     assert_eq!(role_id, master.parse_access(&access).expect("test data"));
 
-    let role_id = [1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 7];
+    let role_id = RoleId([1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 7]);
     let access = master.access_key_for(role_id);
     assert_eq!(ACCESS_KEY_LEN, access.len());
     assert_eq!("S1u1SLAQIDBAUGAQIDBAUH", &access[..2 + 4 + 16]);
