@@ -1,9 +1,11 @@
 use std::path::Path;
 
+use chrono::Utc;
 use failure::bail;
 use failure::Error;
 use hyper::Body;
 use hyper::Request;
+use warheadhateus::HttpRequestMethod;
 
 use super::bucket;
 use super::dir;
@@ -56,7 +58,13 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
     };
 
     let headers = hyp::headers(&req)?;
-    let (user, headers) = match sig::validate(headers) {
+    let (user, headers) = match sig::validate(
+        &format!("{}", req.uri()),
+        |_| "456".to_string(),
+        Utc::now(),
+        headers,
+        HttpRequestMethod::PUT,
+    ) {
         Validation::Invalid | Validation::Unsupported => {
             return Ok(SimpleResponse {
                 status: 403,

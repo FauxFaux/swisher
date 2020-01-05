@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use chrono::DateTime;
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
+use chrono::TimeZone;
 use chrono::Utc;
 use lazy_static::lazy_static;
 use log::debug;
@@ -22,7 +23,16 @@ pub enum Validation {
     Valid(AccessKey, HeaderMap),
 }
 
-pub fn validate(mut headers: HashMap<String, String>) -> Validation {
+pub fn validate<F>(
+    url: &str,
+    secret_key: F,
+    now: DateTime<Utc>,
+    mut headers: HashMap<String, String>,
+    method: HttpRequestMethod,
+) -> Validation
+where
+    F: FnOnce(&str) -> String,
+{
     let authorization = match headers.get("authorization") {
         Some(authorization) => authorization,
         None => return Validation::Anonymous(headers),
@@ -54,8 +64,6 @@ pub fn validate(mut headers: HashMap<String, String>) -> Validation {
         None => return Validation::Invalid,
     };
 
-    let now = Utc::now();
-
     if parts
         .valid_date
         .signed_duration_since(now.naive_utc().date())
@@ -70,16 +78,14 @@ pub fn validate(mut headers: HashMap<String, String>) -> Validation {
         return Validation::Unsupported;
     }
 
-    // TODO: URL
-    let mut war = AWSAuth::new("http://localhost:8202/foo-bar").expect("valid url?");
+    let mut war = AWSAuth::new(url).expect("valid url?");
 
-    war.set_request_type(HttpRequestMethod::PUT);
+    war.set_request_type(method);
     war.set_payload_hash(&warheadhateus::hashed_data(None).unwrap());
     war.set_date(DateTime::from_utc(date, Utc));
 
-    war.set_access_key_id(&parts.access_key)
-        // TODO: secret access key
-        .set_secret_access_key("456");
+    war.set_access_key_id(&parts.access_key);
+    war.set_secret_access_key(&secret_key(&parts.access_key));
 
     war.set_region(Region::UsEast1);
 
@@ -95,8 +101,6 @@ pub fn validate(mut headers: HashMap<String, String>) -> Validation {
     }
 
     let war = war.signature().expect("generated signature");
-
-    dbg!((&parts.signature, &war));
 
     // TODO: constant time comparison
     if parts.signature != war {
@@ -143,17 +147,23 @@ fn canned_request() {
     pretty_env_logger::init();
 
     assert_eq!(
-        validate(owned(maplit::hashmap! {
-                "authorization" => "AWS4-HMAC-SHA256 Credential=123/20200104/us-east-1/s3/aws4_request, \
-                    SignedHeaders=host;x-amz-acl;x-amz-content-sha256;x-amz-date, \
-                    Signature=18597c785bfe3fbb32b93202dcf4023c4333312cffe354dd54903b23da336707",
-                "accept-encoding" => "identity",
-                "content-length" => "0",
-                "host" => "localhost:8202",
-                "x-amz-acl" => "private",
-                "x-amz-content-sha256" => "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                "x-amz-date" => "20200104T204036Z",
-        })),
+        validate(
+            "http://localhost:8202/foo-bar",
+            |_| "456".to_string(),
+            Utc.ymd(2020, 1, 4).and_hms(22, 23, 24),
+            owned(maplit::hashmap! {
+                    "authorization" => "AWS4-HMAC-SHA256 Credential=123/20200104/us-east-1/s3/aws4_request, \
+                        SignedHeaders=host;x-amz-acl;x-amz-content-sha256;x-amz-date, \
+                        Signature=18597c785bfe3fbb32b93202dcf4023c4333312cffe354dd54903b23da336707",
+                    "accept-encoding" => "identity",
+                    "content-length" => "0",
+                    "host" => "localhost:8202",
+                    "x-amz-acl" => "private",
+                    "x-amz-content-sha256" => "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "x-amz-date" => "20200104T204036Z",
+            }),
+            HttpRequestMethod::PUT
+        ),
         Validation::Valid(
             "123".to_string(),
             owned(maplit::hashmap! {
