@@ -24,13 +24,12 @@ impl MasterKey {
     // 12/16 bytes - role id
     //   6/8 bytes - entropy
     pub fn access_key_for(&self, role_id: RoleId) -> String {
-        let mut ret = String::with_capacity(ACCESS_KEY_LEN);
-        ret.push_str("S1");
-        ret.push_str(&pack(&self.id));
-        ret.push_str(&pack(&role_id));
-        ret.push_str(&pack(&rand::random::<u64>().to_le_bytes()[..6]));
-        assert_eq!(ACCESS_KEY_LEN, ret.len());
-        ret
+        let mut ret = Vec::with_capacity(3 + 12 + 6);
+        ret.extend_from_slice(&self.id);
+        ret.extend_from_slice(&role_id);
+        ret.extend_from_slice(&rand::random::<u64>().to_le_bytes()[..6]);
+        assert_eq!(3 + 12 + 6, ret.len());
+        format!("S1{}", pack(&ret))
     }
 
     pub fn parse_access(&self, key: &str) -> Result<RoleId, &'static str> {
