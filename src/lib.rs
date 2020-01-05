@@ -6,3 +6,5 @@ pub mod reqs;
 mod sig;
 mod temp;
 mod users;
+
+pub use users::MasterKey;

@@ -1,6 +1,7 @@
 use rand::AsByteSliceMut;
 use std::convert::TryInto;
 
+#[derive(Copy, Clone)]
 pub struct MasterKey {
     id: [u8; 3],
     key: [u8; 32],

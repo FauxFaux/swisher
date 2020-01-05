@@ -13,6 +13,12 @@ use super::dir::Intermediate;
 use super::hyp;
 use super::sig;
 use crate::sig::Validation;
+use crate::users::MasterKey;
+
+#[derive(Copy, Clone)]
+pub struct CopyState {
+    pub master: MasterKey,
+}
 
 pub struct SimpleResponse {
     pub status: u16,
@@ -36,7 +42,7 @@ fn bucket_name(path: &str) -> (&str, &str) {
     }
 }
 
-pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
+pub async fn handle(req: Request<Body>, state: CopyState) -> Result<SimpleResponse, Error> {
     let not_found = SimpleResponse {
         status: 404,
         body: Body::empty(),

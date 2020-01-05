@@ -11,12 +11,18 @@ use hyper::Body;
 use hyper::Request;
 use hyper::Response;
 use hyper::Server;
+use swisher::reqs::CopyState;
 use swisher::reqs::SimpleMethod;
+use swisher::MasterKey;
 use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     pretty_env_logger::init();
+
+    let state = CopyState {
+        master: MasterKey::new(""),
+    };
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8202));
 
@@ -36,7 +42,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let make_svc = make_service_fn(move |_conn| {
         let shutdown = shutdown.clone();
-        async move { Ok::<_, Infallible>(service_fn(move |req| catch_handler(req, shutdown.clone()))) }
+        async move {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                catch_handler(req, state, shutdown.clone())
+            }))
+        }
     });
 
     log::info!("server starting on http://localhost:8202/");
@@ -53,10 +63,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 async fn catch_handler(
     req: Request<Body>,
+    state: CopyState,
     mut shutdown: mpsc::Sender<()>,
 ) -> Result<Response<Body>, Infallible> {
     // TODO: was expecting to catch_panic here but hyper doesn't want to play
-    Ok(match handler(req).await {
+    Ok(match handler(req, state).await {
         Ok(response) => response,
         Err(e) => {
             log::error!("internal error: {:?}", e);
@@ -74,8 +85,8 @@ fn attempt_shutdown(mut shutdown: mpsc::Sender<()>) -> bool {
     shutdown.try_send(()).is_ok()
 }
 
-async fn handler(req: Request<Body>) -> Result<Response<Body>, Error> {
-    let response = swisher::reqs::handle(req).await?;
+async fn handler(req: Request<Body>, state: CopyState) -> Result<Response<Body>, Error> {
+    let response = swisher::reqs::handle(req, state).await?;
     Ok(Response::builder()
         .status(response.status)
         .body(response.body)
