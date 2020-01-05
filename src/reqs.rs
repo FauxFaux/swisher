@@ -25,23 +25,13 @@ pub enum SimpleMethod {
     Delete,
 }
 
-pub fn bucket_name(host_header: Option<&String>, path: &str) -> Option<(String, String)> {
-    host_header
-        .and_then(|host| first_dns_part(host))
-        .map(|bucket| (bucket.to_string(), path.to_string()))
-        .or_else(|| first_path_part(path))
-}
-
-fn first_dns_part(host: &str) -> Option<&str> {
-    let mut parts = host.split('.');
-    let bucket = parts.next();
-    parts.next().and(bucket)
-}
-
-fn first_path_part(path: &str) -> Option<(String, String)> {
-    path[1..]
-        .find('/')
-        .map(|end| (path[1..end + 1].to_string(), path[end + 1..].to_string()))
+fn bucket_name(path: &str) -> (&str, &str) {
+    assert!(path.starts_with('/'));
+    let path = &path[1..];
+    match path.find('/') {
+        Some(slash) => (&path[..slash], &path[slash..]),
+        None => (path, ""),
+    }
 }
 
 pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
@@ -79,10 +69,7 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
 
     log::info!("{:?}, {:?}, {:?}", method, hyp::path(&req), headers);
 
-    let (bucket, path) = match bucket_name(headers.get("Host"), hyp::path(&req)) {
-        Some(b_p) => b_p,
-        None => return Ok(not_reasonable),
-    };
+    let (bucket, path) = bucket_name(hyp::path(&req));
 
     let bucket = match bucket::Name::from(bucket) {
         Some(bucket) => bucket,
@@ -103,6 +90,8 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
         }
         SimpleMethod::Put => {
             let mut temp = super::temp::NamedTempFile::new_in(".").await?;
+            // BORROW CHECKER
+            let path = path.to_string();
             let content = super::hyper_files::stream_pack(req.into_body(), &mut temp).await?;
             let temp = temp.into_temp_path();
 
@@ -126,28 +115,8 @@ pub async fn handle(req: Request<Body>) -> Result<SimpleResponse, Error> {
 
 #[test]
 fn name() {
-    assert_eq!(None, bucket_name(None, "/"));
-    assert_eq!(None, bucket_name(None, "/potato"));
-    assert_eq!(
-        Some(("potato".into(), "/".into())),
-        bucket_name(None, "/potato/")
-    );
-    assert_eq!(
-        Some(("potato".into(), "/an/d".into())),
-        bucket_name(None, "/potato/an/d")
-    );
-
-    assert_eq!(None, bucket_name(Some(&"foo".into()), "/"));
-    assert_eq!(
-        Some(("plants".into(), "/greens".into())),
-        bucket_name(Some(&"foo".into()), "/plants/greens")
-    );
-    assert_eq!(
-        Some(("potato".into(), "/".into())),
-        bucket_name(Some(&"potato.foo".into()), "/")
-    );
-    assert_eq!(
-        Some(("potato".into(), "/cheese/and/beans".into())),
-        bucket_name(Some(&"potato.foo".into()), "/cheese/and/beans")
-    );
+    assert_eq!(("", ""), bucket_name("/"));
+    assert_eq!(("potato", ""), bucket_name("/potato"));
+    assert_eq!(("potato", "/"), bucket_name("/potato/"));
+    assert_eq!(("potato", "/an/d"), bucket_name("/potato/an/d"));
 }
