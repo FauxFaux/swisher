@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -11,6 +12,8 @@ use hyper::Body;
 use hyper::Request;
 use hyper::Response;
 use hyper::Server;
+use log::debug;
+use log::info;
 use swisher::reqs::CopyState;
 use swisher::reqs::SimpleMethod;
 use swisher::MasterKey;
@@ -19,9 +22,13 @@ use tokio::sync::mpsc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     pretty_env_logger::init();
+    match dotenv::dotenv() {
+        Ok(path) => info!("loaded {:?}", path),
+        Err(e) => debug!("no .env loaded: {:?}", e),
+    }
 
     let state = CopyState {
-        master: MasterKey::new(""),
+        master: MasterKey::new(&env::var("SWISHER_MASTER_KEY")?),
     };
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8202));
