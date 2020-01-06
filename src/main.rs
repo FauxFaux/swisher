@@ -16,7 +16,7 @@ use log::debug;
 use log::info;
 use swisher::reqs::CopyState;
 use swisher::reqs::SimpleMethod;
-use swisher::MasterKey;
+use swisher::users;
 use tokio::sync::mpsc;
 
 #[tokio::main]
@@ -27,9 +27,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Err(e) => debug!("no .env loaded: {:?}", e),
     }
 
+    let args = clap::App::new(clap::crate_name!())
+        .version(clap::crate_version!())
+        .arg(clap::Arg::with_name("issue").long("issue"))
+        .get_matches();
+
     let state = CopyState {
-        master: MasterKey::new(&env::var("SWISHER_MASTER_KEY")?),
+        master: users::MasterKey::new(&env::var("SWISHER_MASTER_KEY")?),
     };
+
+
+    if args.is_present("issue") {
+        let access = state.master.access_key_for(users::RoleId::random());
+        let secret = state.master.secret_key_for(&access);
+
+        println!("{}\t{}", access, secret);
+        return Ok(());
+    }
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8202));
 

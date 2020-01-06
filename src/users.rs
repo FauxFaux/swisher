@@ -58,6 +58,12 @@ impl MasterKey {
     }
 }
 
+impl RoleId {
+    pub fn random() -> Self {
+        RoleId(rand::random())
+    }
+}
+
 fn pack(values: &[u8]) -> String {
     base64::encode_config(values, base64::URL_SAFE_NO_PAD)
 }

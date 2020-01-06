@@ -5,6 +5,4 @@ pub mod hyper_files;
 pub mod reqs;
 mod sig;
 mod temp;
-mod users;
-
-pub use users::MasterKey;
+pub mod users;

@@ -30,6 +30,7 @@ tokio = { version = "0.2", features = ["full"] }
 zstd = "0.5"
 
 # bin dependencies
+clap = { version = "2", optional = true }
 ctrlc = { version = "3", features = ["termination"], optional = true }
 dotenv = { version = "0.15", optional = true }
 path-tree = { version = "0.1", optional = true }
@@ -45,7 +46,7 @@ pretty_env_logger = "0.3"
 
 [features]
 default = []
-bin = ["ctrlc", "dotenv", "path-tree", "pretty_env_logger"]
+bin = ["clap", "ctrlc", "dotenv", "path-tree", "pretty_env_logger"]
 
 [[bin]]
 name = "swisher"
